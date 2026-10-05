@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
+import projectRoutes from "./routes/projects";
 import { authenticate } from "./middleware/auth";
 
 
@@ -32,5 +33,6 @@ app.get("/api/protected", authenticate, (req, res) => {
 app.use("/api/auth", authRoutes);
 
 app.use("/api/users", userRoutes);
+app.use("/api/projects", projectRoutes);
 
 export default app;
