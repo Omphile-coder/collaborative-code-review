@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import projectRoutes from "./routes/projects";
+import commentRoutes from "./routes/comments";
 import submissionRoutes from "./routes/submissions";
 import { authenticate } from "./middleware/auth";
 
@@ -14,6 +15,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use("/api/comments", commentRoutes);
 
 
 app.get("/", (req, res) => {

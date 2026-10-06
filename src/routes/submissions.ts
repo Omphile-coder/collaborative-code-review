@@ -16,7 +16,7 @@ import {
     updateSubmissionStatus,
      deleteSubmission
 } from "../controllers/submissions";
-import { addComment } from "../controllers/comments";
+import { addComment, getSubmissionComments  } from "../controllers/comments";
 
 
 const router = Router();
@@ -142,6 +142,17 @@ router.post(
     ],
     validate,
     addComment
+);
+
+router.get(
+    "/:id/comments",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer")
+    ],
+    validate,
+    getSubmissionComments
 );
 
 export default router;
