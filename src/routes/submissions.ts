@@ -16,6 +16,7 @@ import {
     updateSubmissionStatus,
      deleteSubmission
 } from "../controllers/submissions";
+import { addComment } from "../controllers/comments";
 
 
 const router = Router();
@@ -116,6 +117,31 @@ router.delete(
     ],
     validate,
     deleteSubmission
+);
+
+router.post(
+    "/:id/comments",
+    authorize("reviewer"),
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer"),
+
+        body("content")
+            .isString()
+            .withMessage("Comment content must be a string")
+            .bail()
+            .trim()
+            .notEmpty()
+            .withMessage("Comment content is required"),
+
+        body("line_number")
+            .optional({ values: "null" })
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Line number must be a positive integer")
+    ],
+    validate,
+    addComment
 );
 
 export default router;
