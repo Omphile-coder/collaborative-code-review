@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import projectRoutes from "./routes/projects";
+import submissionRoutes from "./routes/submissions";
 import { authenticate } from "./middleware/auth";
 
 
@@ -34,5 +35,6 @@ app.use("/api/auth", authRoutes);
 
 app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/submissions", submissionRoutes);
 
 export default app;
