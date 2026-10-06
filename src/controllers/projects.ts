@@ -11,27 +11,54 @@ export const createProject = async (
         });
     }
 
+    const client = await pool.connect();
+
     try {
         const { name, description } = req.body;
 
-        const result = await pool.query(
-            `INSERT INTO projects (name, description, created_by)
-             VALUES ($1, $2, $3)
-             RETURNING id, name, description, created_by,
-                       created_at, updated_at`,
+        await client.query("BEGIN");
+
+        const projectResult = await client.query(
+            `INSERT INTO projects (
+                name,
+                description,
+                created_by
+            )
+            VALUES ($1, $2, $3)
+            RETURNING id, name, description, created_by,
+                      created_at, updated_at`,
             [name, description ?? null, req.user.id]
         );
 
+        const project = projectResult.rows[0];
+
+        await client.query(
+            `INSERT INTO project_members (
+                project_id,
+                user_id
+            )
+            VALUES ($1, $2)`,
+            [project.id, req.user.id]
+        );
+
+        await client.query("COMMIT");
+
         return res.status(201).json({
             message: "Project created successfully",
-            project: result.rows[0]
+            project
         });
+
     } catch (error) {
+        await client.query("ROLLBACK");
+
         console.error("Create project error:", error);
 
         return res.status(500).json({
             message: "Internal server error"
         });
+
+    } finally {
+        client.release();
     }
 };
 
@@ -207,6 +234,106 @@ export const removeProjectMember = async (
         });
     } catch (error) {
         console.error("Remove project member error:", error);
+
+        return res.status(500).json({
+            message: "Internal server error"
+        });
+    }
+};
+
+
+export const getProjectById = async (
+    req: Request,
+    res: Response
+) => {
+    if (!req.user) {
+        return res.status(401).json({
+            message: "Authentication required"
+        });
+    }
+
+    try {
+        const projectId = Number(req.params.id);
+
+        // Get the project
+        const projectResult = await pool.query(
+            `SELECT
+                p.id,
+                p.name,
+                p.description,
+                p.created_by,
+                p.created_at,
+                p.updated_at,
+                u.name AS creator_name,
+                u.email AS creator_email
+             FROM projects p
+             JOIN users u
+               ON p.created_by = u.id
+             WHERE p.id = $1`,
+            [projectId]
+        );
+
+        if (projectResult.rows.length === 0) {
+            return res.status(404).json({
+                message: "Project not found"
+            });
+        }
+
+        const project = projectResult.rows[0];
+
+        // Check whether the current user has access
+        const accessResult = await pool.query(
+            `SELECT 1
+             FROM project_members
+             WHERE project_id = $1
+               AND user_id = $2`,
+            [projectId, req.user.id]
+        );
+
+        const isCreator = project.created_by === req.user.id;
+        const isMember = accessResult.rows.length > 0;
+
+        if (!isCreator && !isMember) {
+            return res.status(403).json({
+                message: "You do not have access to this project"
+            });
+        }
+
+        // Get project members
+        const membersResult = await pool.query(
+            `SELECT
+                u.id,
+                u.name,
+                u.email,
+                u.role,
+                u.profile_picture,
+                pm.joined_at
+             FROM project_members pm
+             JOIN users u
+               ON pm.user_id = u.id
+             WHERE pm.project_id = $1
+             ORDER BY pm.joined_at ASC`,
+            [projectId]
+        );
+
+        return res.status(200).json({
+            project: {
+                id: project.id,
+                name: project.name,
+                description: project.description,
+                created_by: project.created_by,
+                creator: {
+                    name: project.creator_name,
+                    email: project.creator_email
+                },
+                created_at: project.created_at,
+                updated_at: project.updated_at
+            },
+            members: membersResult.rows
+        });
+
+    } catch (error) {
+        console.error("Get project error:", error);
 
         return res.status(500).json({
             message: "Internal server error"

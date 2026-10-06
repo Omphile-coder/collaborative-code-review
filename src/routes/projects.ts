@@ -4,6 +4,7 @@ import { authenticate } from "../middleware/auth";
 import {
     createProject,
     getProjects,
+    getProjectById,
     addProjectMember,
     removeProjectMember
 } from "../controllers/projects";
@@ -78,6 +79,19 @@ router.delete(
     removeProjectMember
 );
 
+
+
 router.get("/", getProjects);
+
+router.get(
+    "/:id",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Project ID must be a positive integer")
+    ],
+    validate,
+    getProjectById
+);
 
 export default router;
