@@ -5,16 +5,13 @@ import {
     NextFunction
 } from "express";
 
-import {
-    body,
-    validationResult
-} from "express-validator";
-
+import { body, param ,validationResult } from "express-validator";
 import { authenticate } from "../middleware/auth";
-
 import {
-    createSubmission
+    createSubmission,
+    getSubmissionById
 } from "../controllers/submissions";
+
 
 const router = Router();
 
@@ -69,6 +66,17 @@ router.post(
     ],
     validate,
     createSubmission
+);
+
+router.get(
+    "/:id",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer")
+    ],
+    validate,
+    getSubmissionById
 );
 
 export default router;
