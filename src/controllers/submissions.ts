@@ -350,3 +350,73 @@ export const updateSubmissionStatus = async (
         });
     }
 };
+
+export const deleteSubmission = async (
+    req: Request,
+    res: Response
+) => {
+    if (!req.user) {
+        return res.status(401).json({
+            message: "Authentication required"
+        });
+    }
+
+    try {
+        const submissionId = Number(req.params.id);
+
+        const submissionResult = await pool.query(
+            `SELECT
+                s.id,
+                s.submitted_by,
+                p.created_by
+             FROM submissions s
+             JOIN projects p ON p.id = s.project_id
+             WHERE s.id = $1`,
+            [submissionId]
+        );
+
+        if (submissionResult.rows.length === 0) {
+            return res.status(404).json({
+                message: "Submission not found"
+            });
+        }
+
+        const submission = submissionResult.rows[0];
+
+        const isAuthor =
+            submission.submitted_by === req.user.id;
+
+        const isProjectCreator =
+            submission.created_by === req.user.id;
+
+        if (!isAuthor && !isProjectCreator) {
+            return res.status(403).json({
+                message:
+                    "Only the submission author or project creator can delete this submission"
+            });
+        }
+
+        const result = await pool.query(
+            `DELETE FROM submissions
+             WHERE id = $1
+             RETURNING id`,
+            [submissionId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                message: "Submission not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: "Submission deleted successfully"
+        });
+    } catch (error) {
+        console.error("Delete submission error:", error);
+
+        return res.status(500).json({
+            message: "Internal server error"
+        });
+    }
+};

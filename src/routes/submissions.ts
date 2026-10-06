@@ -13,7 +13,8 @@ import {
 import {
     createSubmission,
     getSubmissionById,
-    updateSubmissionStatus
+    updateSubmissionStatus,
+     deleteSubmission
 } from "../controllers/submissions";
 
 
@@ -104,6 +105,17 @@ router.put(
     ],
     validate,
     updateSubmissionStatus
+);
+
+router.delete(
+    "/:id",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer")
+    ],
+    validate,
+    deleteSubmission
 );
 
 export default router;
