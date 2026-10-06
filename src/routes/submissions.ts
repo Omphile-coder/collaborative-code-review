@@ -17,7 +17,11 @@ import {
      deleteSubmission
 } from "../controllers/submissions";
 import { addComment, getSubmissionComments  } from "../controllers/comments";
-
+import {
+    approveSubmission,
+    requestSubmissionChanges,
+    getSubmissionReviews
+} from "../controllers/reviews";
 
 const router = Router();
 
@@ -96,13 +100,10 @@ router.put(
             .isString()
             .withMessage("Status must be a string")
             .bail()
-            .isIn([
-                "pending",
-                "in_review",
-                "approved",
-                "changes_requested"
-            ])
-            .withMessage("Invalid submission status")
+            .isIn(["pending", "in_review"])
+            .withMessage(
+                "Use the review endpoints to approve or request changes"
+            )
     ],
     validate,
     updateSubmissionStatus
@@ -153,6 +154,56 @@ router.get(
     ],
     validate,
     getSubmissionComments
+);
+
+router.post(
+    "/:id/approve",
+    authorize("reviewer"),
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer"),
+
+        body("feedback")
+            .optional()
+            .isString()
+            .withMessage("Feedback must be a string")
+            .bail()
+            .trim()
+    ],
+    validate,
+    approveSubmission
+);
+
+router.post(
+    "/:id/request-changes",
+    authorize("reviewer"),
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer"),
+
+        body("feedback")
+            .isString()
+            .withMessage("Feedback must be a string")
+            .bail()
+            .trim()
+            .notEmpty()
+            .withMessage("Feedback is required when requesting changes")
+    ],
+    validate,
+    requestSubmissionChanges
+);
+
+router.get(
+    "/:id/reviews",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer")
+    ],
+    validate,
+    getSubmissionReviews
 );
 
 export default router;
