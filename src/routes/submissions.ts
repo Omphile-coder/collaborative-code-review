@@ -6,10 +6,14 @@ import {
 } from "express";
 
 import { body, param ,validationResult } from "express-validator";
-import { authenticate } from "../middleware/auth";
+import {
+    authenticate,
+    authorize
+} from "../middleware/auth";
 import {
     createSubmission,
-    getSubmissionById
+    getSubmissionById,
+    updateSubmissionStatus
 } from "../controllers/submissions";
 
 
@@ -77,6 +81,29 @@ router.get(
     ],
     validate,
     getSubmissionById
+);
+router.put(
+    "/:id/status",
+    authorize("reviewer"),
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Submission ID must be a positive integer"),
+
+        body("status")
+            .isString()
+            .withMessage("Status must be a string")
+            .bail()
+            .isIn([
+                "pending",
+                "in_review",
+                "approved",
+                "changes_requested"
+            ])
+            .withMessage("Invalid submission status")
+    ],
+    validate,
+    updateSubmissionStatus
 );
 
 export default router;
