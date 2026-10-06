@@ -9,6 +9,7 @@ import {
     removeProjectMember
 } from "../controllers/projects";
 import { getProjectSubmissions } from "../controllers/submissions";
+import { getProjectStats } from "../controllers/stats";
 
 const router = Router();
 
@@ -103,6 +104,17 @@ router.get(
     ],
     validate,
     getProjectById
+);
+
+router.get(
+    "/:id/stats",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Project ID must be a positive integer")
+    ],
+    validate,
+    getProjectStats
 );
 
 export default router;

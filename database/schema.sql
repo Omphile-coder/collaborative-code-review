@@ -107,3 +107,74 @@ CREATE TABLE project_members (
         REFERENCES users(id)
         ON DELETE CASCADE
 );
+
+
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    submission_id INTEGER NOT NULL,
+    reviewer_id INTEGER NOT NULL,
+    decision VARCHAR(30) NOT NULL,
+    feedback TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_review_submission
+        FOREIGN KEY (submission_id)
+        REFERENCES submissions(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_review_reviewer
+        FOREIGN KEY (reviewer_id)
+        REFERENCES users(id)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT review_decision_check
+        CHECK (
+            decision IN (
+                'approved',
+                'changes_requested'
+            )
+        )
+);
+
+CREATE INDEX idx_reviews_submission_history
+    ON reviews (submission_id, created_at, id);
+
+
+
+    CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    actor_id INTEGER,
+    submission_id INTEGER NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_notification_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_notification_actor
+        FOREIGN KEY (actor_id)
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_notification_submission
+        FOREIGN KEY (submission_id)
+        REFERENCES submissions(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT notification_type_check
+        CHECK (
+            type IN (
+                'comment_added',
+                'submission_approved',
+                'changes_requested'
+            )
+        )
+);
+
+CREATE INDEX idx_notifications_user_feed
+    ON notifications (user_id, created_at DESC, id DESC);

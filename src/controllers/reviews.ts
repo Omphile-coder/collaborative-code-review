@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import { createNotification } from "../services/notifications";
+import { sendUserNotification } from "../services/websocket";
 
 export const approveSubmission = async (
     req: Request,
@@ -28,12 +30,12 @@ export const approveSubmission = async (
         transactionStarted = true;
 
         const submissionResult = await client.query(
-            `SELECT id, project_id, status
-             FROM submissions
-             WHERE id = $1
-             FOR UPDATE`,
-            [Number(req.params.id)]
-        );
+    `SELECT id, project_id, submitted_by, status
+     FROM submissions
+     WHERE id = $1
+     FOR UPDATE`,
+    [Number(req.params.id)]
+);
 
         if (submissionResult.rows.length === 0) {
             await client.query("ROLLBACK");
@@ -106,9 +108,29 @@ export const approveSubmission = async (
                        status, created_at, updated_at`,
             [submission.id]
         );
+       const notification = await createNotification(client, {
+    userId: submission.submitted_by,
+    actorId: req.user.id,
+    submissionId: submission.id,
+    type: "submission_approved",
+    message: "Your submission was approved."
+});
 
         await client.query("COMMIT");
         transactionStarted = false;
+        if (notification) {
+    try {
+        sendUserNotification(
+            notification.user_id,
+            notification
+        );
+    } catch (deliveryError) {
+        console.error(
+            "Live notification delivery failed:",
+            deliveryError
+        );
+    }
+}
 
         return res.status(200).json({
             message: "Submission approved successfully",
@@ -159,13 +181,13 @@ export const requestSubmissionChanges = async (
         await client.query("BEGIN");
         transactionStarted = true;
 
-        const submissionResult = await client.query(
-            `SELECT id, project_id
-             FROM submissions
-             WHERE id = $1
-             FOR UPDATE`,
-            [Number(req.params.id)]
-        );
+       const submissionResult = await client.query(
+    `SELECT id, project_id, submitted_by
+     FROM submissions
+     WHERE id = $1
+     FOR UPDATE`,
+    [Number(req.params.id)]
+);
 
         if (submissionResult.rows.length === 0) {
             await client.query("ROLLBACK");
@@ -229,9 +251,30 @@ export const requestSubmissionChanges = async (
                        status, created_at, updated_at`,
             [submission.id]
         );
+       const notification = await createNotification(client, {
+    userId: submission.submitted_by,
+    actorId: req.user.id,
+    submissionId: submission.id,
+    type: "changes_requested",
+    message: "A reviewer requested changes to your submission."
+});
 
         await client.query("COMMIT");
         transactionStarted = false;
+
+        if (notification) {
+    try {
+        sendUserNotification(
+            notification.user_id,
+            notification
+        );
+    } catch (deliveryError) {
+        console.error(
+            "Live notification delivery failed:",
+            deliveryError
+        );
+    }
+}
 
         return res.status(200).json({
             message: "Changes requested successfully",

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/database";
+import { sendUserNotification } from "../services/websocket";
 
 export const addComment = async (
     req: Request,

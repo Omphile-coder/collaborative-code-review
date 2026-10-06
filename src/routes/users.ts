@@ -13,6 +13,9 @@ import {
     param,
     validationResult
 } from "express-validator";
+import {
+    getUserNotifications
+} from "../controllers/notifications";
 
 const router = Router();
 
@@ -78,6 +81,18 @@ router.delete(
     validate,
     authorize("reviewer"),
     deleteUser
+);
+
+router.get(
+    "/:id/notifications",
+    authenticate,
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("User ID must be a positive integer")
+    ],
+    validate,
+    getUserNotifications
 );
 
 export default router;
