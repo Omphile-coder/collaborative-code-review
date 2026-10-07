@@ -15,7 +15,18 @@ export const registerUser = async (
     next: NextFunction
 ) => {
     try {
-        const { name, email, password } = req.body;
+        const {
+            name,
+            email,
+            password,
+            role = "submitter"
+        } = req.body;
+
+        if (!["reviewer", "submitter"].includes(role)) {
+            return res.status(400).json({
+                message: "Role must be reviewer or submitter"
+            });
+        }
 
         const existingUser = await pool.query(
             "SELECT id FROM users WHERE email = $1",
@@ -31,11 +42,16 @@ export const registerUser = async (
         const passwordHash = await bcrypt.hash(password, 10);
 
         const result = await pool.query(
-            `INSERT INTO users (name, email, password_hash, role)
+            `INSERT INTO users (
+                name,
+                email,
+                password_hash,
+                role
+             )
              VALUES ($1, $2, $3, $4)
              RETURNING id, name, email, role,
                        profile_picture, created_at`,
-            [name, email, passwordHash, "submitter"]
+            [name, email, passwordHash, role]
         );
 
         return res.status(201).json({
