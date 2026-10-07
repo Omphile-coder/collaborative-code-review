@@ -1,6 +1,9 @@
-import { Router, Request, Response, NextFunction } from "express";
-import { body,param, validationResult } from "express-validator";
+import { Router } from "express";
+import { body, param } from "express-validator";
+
 import { authenticate } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+
 import {
     createProject,
     getProjects,
@@ -8,26 +11,14 @@ import {
     addProjectMember,
     removeProjectMember
 } from "../controllers/projects";
-import { getProjectSubmissions } from "../controllers/submissions";
+
+import {
+    getProjectSubmissions
+} from "../controllers/submissions";
+
 import { getProjectStats } from "../controllers/stats";
 
 const router = Router();
-
-const validate = (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    const errors = validationResult(req);
-
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            errors: errors.array()
-        });
-    }
-
-    next();
-};
 
 router.use(authenticate);
 
@@ -40,7 +31,9 @@ router.post(
             .bail()
             .trim()
             .isLength({ min: 1, max: 150 })
-            .withMessage("Project name must be between 1 and 150 characters"),
+            .withMessage(
+                "Project name must be between 1 and 150 characters"
+            ),
 
         body("description")
             .optional()
@@ -50,6 +43,8 @@ router.post(
     validate,
     createProject
 );
+
+router.get("/", getProjects);
 
 router.post(
     "/:id/members",
@@ -81,7 +76,6 @@ router.delete(
     removeProjectMember
 );
 
-
 router.get(
     "/:id/submissions",
     [
@@ -93,7 +87,16 @@ router.get(
     getProjectSubmissions
 );
 
-router.get("/", getProjects);
+router.get(
+    "/:id/stats",
+    [
+        param("id")
+            .isInt({ min: 1, max: 2147483647 })
+            .withMessage("Project ID must be a positive integer")
+    ],
+    validate,
+    getProjectStats
+);
 
 router.get(
     "/:id",
@@ -104,17 +107,6 @@ router.get(
     ],
     validate,
     getProjectById
-);
-
-router.get(
-    "/:id/stats",
-    [
-        param("id")
-            .isInt({ min: 1, max: 2147483647 })
-            .withMessage("Project ID must be a positive integer")
-    ],
-    validate,
-    getProjectStats
 );
 
 export default router;

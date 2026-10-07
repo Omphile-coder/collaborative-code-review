@@ -1,9 +1,10 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import pool from "../config/database";
 
 export const getProjectStats = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -15,9 +16,7 @@ export const getProjectStats = async (
         const projectId = Number(req.params.id);
 
         const projectResult = await pool.query(
-            `SELECT id, name
-             FROM projects
-             WHERE id = $1`,
+            "SELECT id, name FROM projects WHERE id = $1",
             [projectId]
         );
 
@@ -93,18 +92,14 @@ export const getProjectStats = async (
 
             pool.query(
                 `WITH activity AS (
-                    SELECT
-                        r.reviewer_id AS user_id,
-                        'review' AS kind
+                    SELECT r.reviewer_id AS user_id, 'review' AS kind
                     FROM reviews r
                     JOIN submissions s ON s.id = r.submission_id
                     WHERE s.project_id = $1
 
                     UNION ALL
 
-                    SELECT
-                        c.user_id,
-                        'comment' AS kind
+                    SELECT c.user_id, 'comment' AS kind
                     FROM comments c
                     JOIN submissions s ON s.id = c.submission_id
                     WHERE s.project_id = $1
@@ -127,10 +122,8 @@ export const getProjectStats = async (
             ),
 
             pool.query(
-                `SELECT
-                    s.id AS submission_id,
-                    s.title,
-                    COUNT(c.id)::int AS comment_count
+                `SELECT s.id AS submission_id, s.title,
+                        COUNT(c.id)::int AS comment_count
                  FROM submissions s
                  JOIN comments c ON c.submission_id = s.id
                  WHERE s.project_id = $1
@@ -142,31 +135,23 @@ export const getProjectStats = async (
         ]);
 
         const totals = totalsResult.rows[0];
-
-        const decidedCount =
-            totals.approved + totals.changes_requested;
+        const decidedCount = totals.approved + totals.changes_requested;
 
         const percentage = (count: number) =>
             decidedCount === 0
                 ? null
-                : Number(
-                    ((count / decidedCount) * 100).toFixed(2)
-                );
+                : Number(((count / decidedCount) * 100).toFixed(2));
 
-        const averageHours =
-            timingResult.rows[0].average_hours;
+        const averageHours = timingResult.rows[0].average_hours;
 
         return res.status(200).json({
             project: projectResult.rows[0],
-
             submissions: totals,
 
             decision_percentages: {
                 denominator: "currently approved or changes_requested",
                 approved: percentage(totals.approved),
-                changes_requested: percentage(
-                    totals.changes_requested
-                )
+                changes_requested: percentage(totals.changes_requested)
             },
 
             average_time_to_first_review_hours:
@@ -180,10 +165,6 @@ export const getProjectStats = async (
                 commentsResult.rows[0] ?? null
         });
     } catch (error) {
-        console.error("Get project stats error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };

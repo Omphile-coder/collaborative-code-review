@@ -1,10 +1,28 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
+import type { PoolClient } from "pg";
 import pool from "../config/database";
+import { createNotification } from "../services/notifications";
 import { sendUserNotification } from "../services/websocket";
+
+const projectAccessSql = `
+    SELECT 1
+    FROM projects p
+    WHERE p.id = $1
+      AND (
+          p.created_by = $2
+          OR EXISTS (
+              SELECT 1
+              FROM project_members pm
+              WHERE pm.project_id = p.id
+                AND pm.user_id = $2
+          )
+      )
+`;
 
 export const addComment = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -18,18 +36,30 @@ export const addComment = async (
         });
     }
 
+    let client: PoolClient | undefined;
+    let transactionStarted = false;
+
     try {
+        client = await pool.connect();
+
+        await client.query("BEGIN");
+        transactionStarted = true;
+
         const submissionId = Number(req.params.id);
         const { content, line_number } = req.body;
 
-        const submissionResult = await pool.query(
-            `SELECT id, project_id, code
+        const submissionResult = await client.query(
+            `SELECT id, project_id, submitted_by, code
              FROM submissions
-             WHERE id = $1`,
+             WHERE id = $1
+             FOR UPDATE`,
             [submissionId]
         );
 
         if (submissionResult.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+
             return res.status(404).json({
                 message: "Submission not found"
             });
@@ -37,42 +67,34 @@ export const addComment = async (
 
         const submission = submissionResult.rows[0];
 
-        const accessResult = await pool.query(
-            `SELECT 1
-             FROM projects p
-             WHERE p.id = $1
-               AND (
-                    p.created_by = $2
-                    OR EXISTS (
-                        SELECT 1
-                        FROM project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = $2
-                    )
-               )`,
+        const accessResult = await client.query(
+            projectAccessSql,
             [submission.project_id, req.user.id]
         );
 
         if (accessResult.rows.length === 0) {
+            await client.query("ROLLBACK");
+            transactionStarted = false;
+
             return res.status(403).json({
                 message: "You do not have access to this submission"
             });
         }
 
-        // null means a general comment.
         const lineNumber =
             line_number == null ? null : Number(line_number);
 
         if (lineNumber !== null) {
-            const lineCount = submission.code.split(
-                /\r\n|\n|\r/
-            ).length;
+            const lineCount = submission.code.split(/\r\n|\n|\r/).length;
 
             if (
                 !Number.isInteger(lineNumber) ||
                 lineNumber < 1 ||
                 lineNumber > lineCount
             ) {
+                await client.query("ROLLBACK");
+                transactionStarted = false;
+
                 return res.status(400).json({
                     message:
                         `Line number must be between 1 and ${lineCount}`
@@ -80,40 +102,61 @@ export const addComment = async (
             }
         }
 
-        const result = await pool.query(
+        const result = await client.query(
             `INSERT INTO comments (
-                submission_id,
-                user_id,
-                content,
-                line_number
+                submission_id, user_id, content, line_number
              )
              VALUES ($1, $2, $3, $4)
              RETURNING id, submission_id, user_id, content,
                        line_number, created_at, updated_at`,
-            [
-                submissionId,
-                req.user.id,
-                content,
-                lineNumber
-            ]
+            [submission.id, req.user.id, content, lineNumber]
         );
+
+        const notification = await createNotification(client, {
+            userId: submission.submitted_by,
+            actorId: req.user.id,
+            submissionId: submission.id,
+            type: "comment_added",
+            message: "A reviewer commented on your submission."
+        });
+
+        await client.query("COMMIT");
+        transactionStarted = false;
+
+        if (notification) {
+            try {
+                sendUserNotification(notification.user_id, notification);
+            } catch (deliveryError) {
+                console.error(
+                    "Live notification delivery failed:",
+                    deliveryError
+                );
+            }
+        }
 
         return res.status(201).json({
             message: "Comment added successfully",
             comment: result.rows[0]
         });
     } catch (error) {
-        console.error("Add comment error:", error);
+        if (client && transactionStarted) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (rollbackError) {
+                console.error("Rollback error:", rollbackError);
+            }
+        }
 
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
+    } finally {
+        client?.release();
     }
 };
 
 export const getSubmissionComments = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -125,9 +168,7 @@ export const getSubmissionComments = async (
         const submissionId = Number(req.params.id);
 
         const submissionResult = await pool.query(
-            `SELECT id, project_id
-             FROM submissions
-             WHERE id = $1`,
+            "SELECT id, project_id FROM submissions WHERE id = $1",
             [submissionId]
         );
 
@@ -140,18 +181,7 @@ export const getSubmissionComments = async (
         const submission = submissionResult.rows[0];
 
         const accessResult = await pool.query(
-            `SELECT 1
-             FROM projects p
-             WHERE p.id = $1
-               AND (
-                    p.created_by = $2
-                    OR EXISTS (
-                        SELECT 1
-                        FROM project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = $2
-                    )
-               )`,
+            projectAccessSql,
             [submission.project_id, req.user.id]
         );
 
@@ -162,15 +192,10 @@ export const getSubmissionComments = async (
         }
 
         const result = await pool.query(
-            `SELECT
-                c.id,
-                c.submission_id,
-                c.user_id,
-                u.name AS author_name,
-                c.content,
-                c.line_number,
-                c.created_at,
-                c.updated_at
+            `SELECT c.id, c.submission_id, c.user_id,
+                    u.name AS author_name,
+                    c.content, c.line_number,
+                    c.created_at, c.updated_at
              FROM comments c
              JOIN users u ON u.id = c.user_id
              WHERE c.submission_id = $1
@@ -183,17 +208,14 @@ export const getSubmissionComments = async (
             comments: result.rows
         });
     } catch (error) {
-        console.error("List submission comments error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };
 
 export const updateComment = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -234,18 +256,7 @@ export const updateComment = async (
         }
 
         const accessResult = await pool.query(
-            `SELECT 1
-             FROM projects p
-             WHERE p.id = $1
-               AND (
-                    p.created_by = $2
-                    OR EXISTS (
-                        SELECT 1
-                        FROM project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = $2
-                    )
-               )`,
+            projectAccessSql,
             [comment.project_id, req.user.id]
         );
 
@@ -276,16 +287,14 @@ export const updateComment = async (
             comment: result.rows[0]
         });
     } catch (error) {
-        console.error("Update comment error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };
+
 export const deleteComment = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -325,18 +334,7 @@ export const deleteComment = async (
         }
 
         const accessResult = await pool.query(
-            `SELECT 1
-             FROM projects p
-             WHERE p.id = $1
-               AND (
-                    p.created_by = $2
-                    OR EXISTS (
-                        SELECT 1
-                        FROM project_members pm
-                        WHERE pm.project_id = p.id
-                          AND pm.user_id = $2
-                    )
-               )`,
+            projectAccessSql,
             [comment.project_id, req.user.id]
         );
 
@@ -363,10 +361,6 @@ export const deleteComment = async (
             message: "Comment deleted successfully"
         });
     } catch (error) {
-        console.error("Delete comment error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };

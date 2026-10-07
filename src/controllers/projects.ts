@@ -1,9 +1,11 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
+import type { PoolClient } from "pg";
 import pool from "../config/database";
 
 export const createProject = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -11,60 +13,59 @@ export const createProject = async (
         });
     }
 
-    const client = await pool.connect();
+    let client: PoolClient | undefined;
+    let transactionStarted = false;
 
     try {
+        client = await pool.connect();
+
         const { name, description } = req.body;
 
         await client.query("BEGIN");
+        transactionStarted = true;
 
         const projectResult = await client.query(
-            `INSERT INTO projects (
-                name,
-                description,
-                created_by
-            )
-            VALUES ($1, $2, $3)
-            RETURNING id, name, description, created_by,
-                      created_at, updated_at`,
+            `INSERT INTO projects (name, description, created_by)
+             VALUES ($1, $2, $3)
+             RETURNING id, name, description, created_by,
+                       created_at, updated_at`,
             [name, description ?? null, req.user.id]
         );
 
         const project = projectResult.rows[0];
 
         await client.query(
-            `INSERT INTO project_members (
-                project_id,
-                user_id
-            )
-            VALUES ($1, $2)`,
+            `INSERT INTO project_members (project_id, user_id)
+             VALUES ($1, $2)`,
             [project.id, req.user.id]
         );
 
         await client.query("COMMIT");
+        transactionStarted = false;
 
         return res.status(201).json({
             message: "Project created successfully",
             project
         });
-
     } catch (error) {
-        await client.query("ROLLBACK");
+        if (client && transactionStarted) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (rollbackError) {
+                console.error("Rollback error:", rollbackError);
+            }
+        }
 
-        console.error("Create project error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
-
+        return next(error);
     } finally {
-        client.release();
+        client?.release();
     }
 };
 
 export const getProjects = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -92,17 +93,14 @@ export const getProjects = async (
             projects: result.rows
         });
     } catch (error) {
-        console.error("List projects error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };
 
 export const addProjectMember = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -115,7 +113,7 @@ export const addProjectMember = async (
         const userId = Number(req.body.user_id);
 
         const projectResult = await pool.query(
-            `SELECT created_by FROM projects WHERE id = $1`,
+            "SELECT created_by FROM projects WHERE id = $1",
             [projectId]
         );
 
@@ -140,7 +138,7 @@ export const addProjectMember = async (
         }
 
         const userResult = await pool.query(
-            `SELECT id FROM users WHERE id = $1`,
+            "SELECT id FROM users WHERE id = $1",
             [userId]
         );
 
@@ -169,17 +167,14 @@ export const addProjectMember = async (
             member: result.rows[0]
         });
     } catch (error) {
-        console.error("Add project member error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };
 
 export const removeProjectMember = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -192,7 +187,7 @@ export const removeProjectMember = async (
         const userId = Number(req.params.userId);
 
         const projectResult = await pool.query(
-            `SELECT created_by FROM projects WHERE id = $1`,
+            "SELECT created_by FROM projects WHERE id = $1",
             [projectId]
         );
 
@@ -233,18 +228,14 @@ export const removeProjectMember = async (
             message: "Member removed successfully"
         });
     } catch (error) {
-        console.error("Remove project member error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };
 
-
 export const getProjectById = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -255,20 +246,13 @@ export const getProjectById = async (
     try {
         const projectId = Number(req.params.id);
 
-        // Get the project
         const projectResult = await pool.query(
-            `SELECT
-                p.id,
-                p.name,
-                p.description,
-                p.created_by,
-                p.created_at,
-                p.updated_at,
-                u.name AS creator_name,
-                u.email AS creator_email
+            `SELECT p.id, p.name, p.description, p.created_by,
+                    p.created_at, p.updated_at,
+                    u.name AS creator_name,
+                    u.email AS creator_email
              FROM projects p
-             JOIN users u
-               ON p.created_by = u.id
+             JOIN users u ON u.id = p.created_by
              WHERE p.id = $1`,
             [projectId]
         );
@@ -281,12 +265,10 @@ export const getProjectById = async (
 
         const project = projectResult.rows[0];
 
-        // Check whether the current user has access
         const accessResult = await pool.query(
             `SELECT 1
              FROM project_members
-             WHERE project_id = $1
-               AND user_id = $2`,
+             WHERE project_id = $1 AND user_id = $2`,
             [projectId, req.user.id]
         );
 
@@ -299,20 +281,13 @@ export const getProjectById = async (
             });
         }
 
-        // Get project members
         const membersResult = await pool.query(
-            `SELECT
-                u.id,
-                u.name,
-                u.email,
-                u.role,
-                u.profile_picture,
-                pm.joined_at
+            `SELECT u.id, u.name, u.email, u.role,
+                    u.profile_picture, pm.joined_at
              FROM project_members pm
-             JOIN users u
-               ON pm.user_id = u.id
+             JOIN users u ON u.id = pm.user_id
              WHERE pm.project_id = $1
-             ORDER BY pm.joined_at ASC`,
+             ORDER BY pm.joined_at ASC, u.id ASC`,
             [projectId]
         );
 
@@ -331,12 +306,7 @@ export const getProjectById = async (
             },
             members: membersResult.rows
         });
-
     } catch (error) {
-        console.error("Get project error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };

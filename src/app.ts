@@ -7,6 +7,7 @@ import projectRoutes from "./routes/projects";
 import commentRoutes from "./routes/comments";
 import submissionRoutes from "./routes/submissions";
 import { authenticate } from "./middleware/auth";
+import { errorHandler } from "./middleware/errorHandler";
 
 
 dotenv.config();
@@ -38,5 +39,14 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/submissions", submissionRoutes);
+
+app.use((_req, res) => {
+    res.status(404).json({
+        message: "Route not found"
+    });
+});
+
+app.use(errorHandler);
+
 
 export default app;

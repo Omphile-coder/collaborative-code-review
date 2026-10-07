@@ -1,9 +1,10 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import pool from "../config/database";
 
 export const getUserNotifications = async (
     req: Request,
-    res: Response
+    res: Response,
+    next: NextFunction
 ) => {
     if (!req.user) {
         return res.status(401).json({
@@ -21,7 +22,7 @@ export const getUserNotifications = async (
 
     try {
         const userResult = await pool.query(
-            `SELECT id FROM users WHERE id = $1`,
+            "SELECT id FROM users WHERE id = $1",
             [userId]
         );
 
@@ -32,16 +33,10 @@ export const getUserNotifications = async (
         }
 
         const result = await pool.query(
-            `SELECT
-                n.id,
-                n.user_id,
-                n.actor_id,
-                u.name AS actor_name,
-                n.submission_id,
-                n.type,
-                n.message,
-                n.is_read,
-                n.created_at
+            `SELECT n.id, n.user_id, n.actor_id,
+                    u.name AS actor_name,
+                    n.submission_id, n.type, n.message,
+                    n.is_read, n.created_at
              FROM notifications n
              LEFT JOIN users u ON u.id = n.actor_id
              WHERE n.user_id = $1
@@ -54,10 +49,6 @@ export const getUserNotifications = async (
             notifications: result.rows
         });
     } catch (error) {
-        console.error("Get notifications error:", error);
-
-        return res.status(500).json({
-            message: "Internal server error"
-        });
+        return next(error);
     }
 };

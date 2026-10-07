@@ -1,22 +1,25 @@
-import {
-    Router,
-    Request,
-    Response,
-    NextFunction
-} from "express";
+import { Router } from "express";
+import { body, param } from "express-validator";
 
-import { body, param ,validationResult } from "express-validator";
 import {
     authenticate,
     authorize
 } from "../middleware/auth";
+
+import { validate } from "../middleware/validate";
+
 import {
     createSubmission,
     getSubmissionById,
     updateSubmissionStatus,
-     deleteSubmission
+    deleteSubmission
 } from "../controllers/submissions";
-import { addComment, getSubmissionComments  } from "../controllers/comments";
+
+import {
+    addComment,
+    getSubmissionComments
+} from "../controllers/comments";
+
 import {
     approveSubmission,
     requestSubmissionChanges,
@@ -25,22 +28,6 @@ import {
 
 const router = Router();
 
-const validate = (
-    req: Request,
-    res: Response,
-    next: NextFunction
-) => {
-    const errors = validationResult(req);
-
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            errors: errors.array()
-        });
-    }
-
-    next();
-};
-
 router.use(authenticate);
 
 router.post(
@@ -48,9 +35,7 @@ router.post(
     [
         body("project_id")
             .isInt({ min: 1, max: 2147483647 })
-            .withMessage(
-                "Project ID must be a positive integer"
-            ),
+            .withMessage("Project ID must be a positive integer"),
 
         body("title")
             .isString()
@@ -58,9 +43,7 @@ router.post(
             .bail()
             .trim()
             .isLength({ min: 1, max: 200 })
-            .withMessage(
-                "Title must be between 1 and 200 characters"
-            ),
+            .withMessage("Title must be between 1 and 200 characters"),
 
         body("code")
             .isString()
@@ -88,6 +71,7 @@ router.get(
     validate,
     getSubmissionById
 );
+
 router.put(
     "/:id/status",
     authorize("reviewer"),
@@ -189,7 +173,9 @@ router.post(
             .bail()
             .trim()
             .notEmpty()
-            .withMessage("Feedback is required when requesting changes")
+            .withMessage(
+                "Feedback is required when requesting changes"
+            )
     ],
     validate,
     requestSubmissionChanges
